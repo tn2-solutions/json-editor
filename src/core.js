@@ -321,7 +321,7 @@ JSONEditor.prototype = {
       }
     }
   },
-  _getExternalRefs: function(schema) {
+  _getExternalRefs: function(schema, parentUrl) {
     var refs = {};
     var merge_refs = function(newrefs) {
       for(var i in newrefs) {
@@ -332,6 +332,12 @@ JSONEditor.prototype = {
     };
     
     if(schema.$ref && typeof schema.$ref !== "object" && schema.$ref.substr(0,1) !== "#" && !this.refs[schema.$ref]) {
+      if (parentUrl) {
+        var newUrl = parentUrl.split('#')[0];
+        newUrl = newUrl.substring(0, newUrl.lastIndexOf('/') + 1) + schema.$ref;
+        newUrl = newUrl.replace(/\/[^\/]+\/\.\.\//g, '/');
+        schema.$ref = newUrl;
+      }
       refs[schema.$ref] = true;
     }
     
@@ -340,20 +346,20 @@ JSONEditor.prototype = {
       if(schema[i] && typeof schema[i] === "object" && Array.isArray(schema[i])) {
         for(var j=0; j<schema[i].length; j++) {
           if(typeof schema[i][j]==="object") {
-            merge_refs(this._getExternalRefs(schema[i][j]));
+            merge_refs(this._getExternalRefs(schema[i][j], parentUrl));
           }
         }
       }
       else if(schema[i] && typeof schema[i] === "object") {
-        merge_refs(this._getExternalRefs(schema[i]));
+        merge_refs(this._getExternalRefs(schema[i], parentUrl));
       }
     }
     
     return refs;
   },
-  _loadExternalRefs: function(schema, callback) {
+  _loadExternalRefs: function(schema, callback, parentUrl) {
     var self = this;
-    var refs = this._getExternalRefs(schema);
+    var refs = this._getExternalRefs(schema, parentUrl);
     
     var done = 0, waiting = 0, callback_fired = false;
     
@@ -378,7 +384,14 @@ JSONEditor.prototype = {
             throw "Failed to parse external ref "+url;
           }
           if(!response || typeof response !== "object") throw "External ref does not contain a valid schema - "+url;
-          
+
+          if (url.indexOf('#/') >= 0) {
+            var parts = url.split('#/')[1].split('/');
+            for (var i in parts) {
+              response = response[parts[i]];
+            }
+          }
+
           self.refs[url] = response;
           self._loadExternalRefs(response,function() {
             done++;
@@ -386,7 +399,7 @@ JSONEditor.prototype = {
               callback_fired = true;
               callback();
             }
-          });
+          }, url);
         }
         // Request failed
         else {
